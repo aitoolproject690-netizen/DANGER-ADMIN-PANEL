@@ -767,6 +767,30 @@ app.post("/api/owner/control",async(req,res)=>{
       recordAudit(req,"OWNER_PANEL_CREDENTIALS_RESET",{username});
       return res.json({ok:true,username});
     }
+    if(action==="generate_key"){
+      const game=String(req.body?.game || "My APK").trim().slice(0,100) || "My APK";
+      const duration=String(req.body?.duration || "Lifetime").trim();
+      const devices=Number(req.body?.maxDevices ?? 1);
+      const quantity=Number(req.body?.quantity ?? 1);
+      if(!Number.isInteger(devices) || devices<1 || devices>2000) return res.status(400).json({error:"Device limit must be between 1 and 2000"});
+      if(!Number.isInteger(quantity) || quantity<1 || quantity>100) return res.status(400).json({error:"Quantity must be between 1 and 100"});
+      const tier=db.prepare("SELECT * FROM pricing_tiers WHERE duration=? AND device_limit=? AND active=1").get(duration,devices);
+      if(!tier) return res.status(400).json({error:"Choose an active duration and device limit"});
+      const insert=db.prepare(`INSERT INTO keys(license_key,game,duration,expires_at,max_devices,owner_id,price_paid,order_id)
+        VALUES(?,?,?,?,?,?,0,NULL)`);
+      const keys=[];
+      const tx=db.transaction(()=>{
+        for(let i=0;i<quantity;i++){
+          const key=makeKey();
+          const expires=expiryFromDuration(duration);
+          insert.run(key,game,duration,expires,devices,admin.id);
+          keys.push({key,expires_at:expires});
+        }
+      });
+      tx();
+      recordAudit(req,"OWNER_KEY_GENERATED",{game,duration,maxDevices:devices,quantity});
+      return res.json({ok:true,keys,game,duration,maxDevices:devices,quantity});
+    }
     if(action==="status"){
       const expiry=db.prepare("SELECT value FROM settings WHERE key='customer_panel_expires_at'").get()?.value || null;
       return res.json({ok:true,active:Boolean(db.prepare("SELECT active FROM users WHERE id=?").get(admin.id)?.active),username:db.prepare("SELECT username FROM users WHERE id=?").get(admin.id)?.username,panel_expires_at:expiry});
