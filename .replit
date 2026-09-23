@@ -1,0 +1,14 @@
+modules = ["nodejs-20"]
+
+[nix]
+channel = "stable-25_05"
+packages = ["unzip"]
+
+run = "npm start"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
+
+[deployment]
+run = ["npm", "start"]
