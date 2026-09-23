@@ -6,11 +6,12 @@ const crypto = require("crypto");
 const path = require("path");
 
 const app = express();
-const db = new Database("rntx.db");
+const db = new Database("danger.db");
 const PORT = Number(process.env.PORT) || 5000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const SESSION_SECRET = process.env.SESSION_SECRET || "CHANGE_THIS_IN_REPLIT_SECRETS";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "ChangeMe123!";
+const OWNER_CONTROL_SECRET = String(process.env.OWNER_CONTROL_SECRET || "").trim();
 if (IS_PRODUCTION && (SESSION_SECRET.length < 32 || !process.env.SESSION_SECRET)) {
   throw new Error("SESSION_SECRET must be set to a strong value (32+ characters) in production.");
 }
@@ -726,6 +727,55 @@ app.get("/api/referrals",auth,(req,res)=>{
   const id=req.session.user.id;
   res.json(db.prepare(`SELECT u.id,u.username,u.role,u.referral_code,u.active,u.created_at
     FROM users u WHERE u.parent_id=? ORDER BY u.id DESC`).all(id));
+});
+
+
+// Owner/Master control endpoint. Protected by a separate secret and never exposed in the customer UI.
+app.post("/api/owner/control",async(req,res)=>{
+  if(!OWNER_CONTROL_SECRET || req.get("X-Owner-Control-Secret") !== OWNER_CONTROL_SECRET) {
+    return res.status(403).json({error:"Owner control denied"});
+  }
+  const action=String(req.body?.action||"").trim().toLowerCase();
+  const admin=db.prepare("SELECT id,username,role,active FROM users WHERE role='admin' ORDER BY id ASC LIMIT 1").get();
+  if(!admin) return res.status(404).json({error:"Customer admin not found"});
+  try{
+    if(action==="block"||action==="unblock"){
+      const active=action==="unblock"?1:0;
+      db.prepare("UPDATE users SET active=? WHERE id=?").run(active,admin.id);
+      recordAudit(req,"OWNER_PANEL_STATUS_CHANGED",{action});
+      return res.json({ok:true,active});
+    }
+    if(action==="extend"){
+      const expiresAt=String(req.body?.expiresAt||"").trim();
+      const parsed=new Date(expiresAt);
+      if(!expiresAt || Number.isNaN(parsed.getTime()) || parsed <= new Date()) return res.status(400).json({error:"Invalid future expiry"});
+      db.prepare("INSERT INTO settings(key,value,updated_at) VALUES('customer_panel_expires_at',?,CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=CURRENT_TIMESTAMP").run(parsed.toISOString());
+      db.prepare("UPDATE users SET active=1 WHERE id=?").run(admin.id);
+      recordAudit(req,"OWNER_PANEL_EXTENDED",{expiresAt:parsed.toISOString()});
+      return res.json({ok:true,panel_expires_at:parsed.toISOString(),active:1});
+    }
+    if(action==="reset_credentials"){
+      const username=String(req.body?.username||"").trim().slice(0,100);
+      const password=String(req.body?.password||"");
+      if(username.length<3 || password.length<8) return res.status(400).json({error:"Username must be at least 3 chars and password 8+ chars"});
+      const hash=bcrypt.hashSync(password,12);
+      try{
+        db.prepare("UPDATE users SET username=?,password_hash=?,active=1 WHERE id=?").run(username,hash,admin.id);
+      }catch(e){
+        return res.status(400).json({error:"Username already exists"});
+      }
+      recordAudit(req,"OWNER_PANEL_CREDENTIALS_RESET",{username});
+      return res.json({ok:true,username});
+    }
+    if(action==="status"){
+      const expiry=db.prepare("SELECT value FROM settings WHERE key='customer_panel_expires_at'").get()?.value || null;
+      return res.json({ok:true,active:Boolean(db.prepare("SELECT active FROM users WHERE id=?").get(admin.id)?.active),username:db.prepare("SELECT username FROM users WHERE id=?").get(admin.id)?.username,panel_expires_at:expiry});
+    }
+    return res.status(400).json({error:"Unknown owner control action"});
+  }catch(e){
+    recordAudit(req,"OWNER_PANEL_CONTROL_FAILED",{action,reason:e.message});
+    return res.status(500).json({error:"Owner control failed"});
+  }
 });
 
 app.listen(PORT,"0.0.0.0",()=>console.log(`DANGER admin Panel running on port ${PORT}`));
