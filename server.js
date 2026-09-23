@@ -179,12 +179,18 @@ for (const [duration, basePrice, sortOrder] of defaultPlans) {
 }
 
 function ensureAdmin() {
-  const admin = db.prepare("SELECT id FROM users WHERE role='admin' LIMIT 1").get();
+  const configuredUsername = String(process.env.ADMIN_USERNAME || "admin").trim().slice(0,100);
+  const admin = db.prepare("SELECT id,username FROM users WHERE role='admin' ORDER BY id ASC LIMIT 1").get();
   if (!admin) {
     const hash = bcrypt.hashSync(ADMIN_PASSWORD, 12);
     db.prepare("INSERT INTO users(username,password_hash,role,referral_code,panel_expires_at) VALUES(?,?,?,?,NULL)")
-      .run(process.env.ADMIN_USERNAME || "admin", hash, "admin", "DANGERADMIN");
-    console.log("Default admin created. Set ADMIN_USERNAME, ADMIN_PASSWORD and SESSION_SECRET in Replit Secrets.");
+      .run(configuredUsername, hash, "admin", "DANGERADMIN");
+    console.log("Default admin created.");
+  } else if (process.env.RESET_ADMIN_CREDENTIALS === "1") {
+    const hash = bcrypt.hashSync(ADMIN_PASSWORD, 12);
+    db.prepare("UPDATE users SET username=?, password_hash=?, active=1 WHERE id=?")
+      .run(configuredUsername, hash, admin.id);
+    console.log("Admin credentials reset from environment.");
   }
 }
 ensureAdmin();
