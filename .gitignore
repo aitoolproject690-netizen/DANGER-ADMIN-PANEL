@@ -1,0 +1,8 @@
+node_modules/
+danger.db
+danger.db-shm
+danger.db-wal
+danger-session.db
+danger-session.db-shm
+danger-session.db-wal
+npm-debug.log*
