@@ -64,7 +64,7 @@ function show(id){
 }
 async function loadDash(){
   const d=await api("/api/dashboard");
-  $("stats").innerHTML=[["🔑",d.total,"Total Keys"],["🔓",d.used,"Used Keys"],["🔒",d.unused,"Unused Keys"],["👥",d.users,"Total Users"],["⛔",d.blocked,"Blocked Keys"],["🏷️",d.resellers,"Resellers"]].map(x=>`<div class="stat"><div>${x[0]}</div><b>${x[1]}</b><span>${x[2]}</span></div>`).join("");
+  $("stats").innerHTML=[["🔑",d.total,"Total Keys"],["🔓",d.used,"Used Keys"],["🔒",d.unused,"Unused Keys"],["👥",d.users,"Total Users"],["⛔",d.blocked,"Blocked Keys"],["🏷️",d.resellers,"Resellers"]].map(x=>`<div class="stat"><div class="stat-icon">${x[0]}</div><span>${x[2]}</span><b>${x[1]}</b><em>→ No change</em></div>`).join("");
   $("usage").innerHTML=`${d.total?Math.round(d.used/d.total*100):0}% used — ${d.used} / ${d.total} keys`;
   $("walletSummary").innerHTML=me.role==="reseller"?`<h3>WALLET BALANCE</h3><div class="wallet-amount">₹${Number(d.wallet||0).toLocaleString("en-IN")}</div><p>Available for license purchases. Panel days and license expiry are separate.</p>`:"<h3>ADMIN CONTROL</h3><p>Manage reseller panel days, wallet balances, and maximum device limits from Manage Users.</p>";
   if(me.role==="reseller")$("recentTransactions").innerHTML=d.recentTransactions?.length?d.recentTransactions.map(transactionLine).join(""):"<p>No transactions yet.</p>";
